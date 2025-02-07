@@ -182,6 +182,8 @@ func main() {
 		fmt.Println("Error decoding body", err)
 	}
 	for _, v := range responseData.Data.Availability {
-		fmt.Println(v)
+		if v.Available {
+			fmt.Println(v)
+		}
 	}
 }
