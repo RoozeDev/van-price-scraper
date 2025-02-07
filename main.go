@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 
+	"github.com/RoozeDev/van-price-scraper/internal/tools"
 	"github.com/andybalholm/brotli"
+	"go.mongodb.org/mongo-driver/bson"
 )
 
 type BookingBody struct {
@@ -40,12 +43,21 @@ type ResponseLocation struct {
 }
 
 type Availability struct {
-	Available    bool    `json:"available"`
-	TotalCost    float64 `json:"total_cost"`
-	LocationName string  `json:"location_name"`
-	CheckInDate  string  `json:"checkin_date"`
-	CheckOutDate string  `json:"checkout_date"`
-	VanCategory  string  `json:"van_category"`
+	Available  bool    `json:"available"`
+	TotalPrice float64 `json:"total_cost"`
+	Location   string  `json:"location_name"`
+	StartDate  string  `json:"checkin_date"`
+	EndDate    string  `json:"checkout_date"`
+	VanType    string  `json:"van_category"`
+}
+
+type Price struct {
+	Supplier   string
+	TotalPrice float64
+	Location   string
+	StartDate  string
+	EndDate    string
+	VanType    string
 }
 
 type ResponseBody struct {
@@ -131,7 +143,7 @@ func main() {
 		CheckInCity:      "anchorage",
 		CheckInDateTime:  "2025-06-30T16:30:00+00:00",
 		CheckOutCity:     "anchorage",
-		CheckOutDateTime: "2025-07-28T11:00:00+00:00",
+		CheckOutDateTime: "2025-07-07T11:00:00+00:00",
 		VanCategories:    VanCategories,
 		VanCategory:      "",
 		LegacySearch:     false,
@@ -177,13 +189,52 @@ func main() {
 		}
 
 	} else {
-
 		err = json.NewDecoder(resp.Body).Decode(&responseData)
 		fmt.Println("Error decoding body", err)
 	}
+
+	var results []Price
+
 	for _, v := range responseData.Data.Availability {
 		if v.Available {
-			fmt.Println(v)
+			var result Price = Price{
+				Supplier:   "IndieCampers",
+				StartDate:  v.StartDate,
+				EndDate:    v.EndDate,
+				Location:   v.Location,
+				TotalPrice: v.TotalPrice,
+				VanType:    v.VanType,
+			}
+			results = append(results, result)
 		}
 	}
+
+	databaseName := tools.GetDatabaseName()
+	uri := tools.GetDatabaseConnectionURL()
+	client := tools.GetDatabaseClient(uri)
+	defer tools.CloseConnection(client)
+
+	databaseConnection := tools.GetDatabaseConnection(client, databaseName)
+
+	coll := databaseConnection.Collection("prices")
+
+	dbresult, err := coll.InsertMany(context.TODO(), results)
+	tools.Check(err)
+
+	fmt.Println(dbresult.InsertedIDs...)
+
+	filter := bson.M{}
+
+	cursor, err := coll.Find(context.TODO(), filter)
+	tools.Check(err)
+
+	var dbResults []Price
+	if err = cursor.All(context.TODO(), &dbResults); err != nil {
+		panic(err)
+	}
+	for _, result := range dbResults {
+		res, _ := bson.MarshalExtJSON(result, false, false)
+		fmt.Println(string(res))
+	}
+
 }

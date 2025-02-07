@@ -1,5 +1,24 @@
+networks:
+  van-price-service-network:
+    name: "van-price-service-network"
+    external: true
+
 services:
   scraper:
     build:
       context: .
       target: final
+    networks:
+      - van-price-service-network
+    secrets:
+      - db_username
+      - db_password
+      - db_name
+
+secrets:
+  db_username:
+    file: run/secrets/db_service_user_name
+  db_password:
+    file: run/secrets/db_service_user_password
+  db_name:
+    file: run/secrets/db_name
