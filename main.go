@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/RoozeDev/van-price-scraper/internal/tools"
 	"github.com/andybalholm/brotli"
@@ -52,12 +53,13 @@ type Availability struct {
 }
 
 type Price struct {
-	Supplier   string
-	TotalPrice float64
-	Location   string
-	StartDate  string
-	EndDate    string
-	VanType    string
+	Supplier    string    `bson:"supplier"`
+	TotalPrice  float64   `bson:"total_price"`
+	Location    string    `bson:"location"`
+	StartDate   time.Time `bson:"start_date"`
+	EndDate     time.Time `bson:"end_date"`
+	VanType     string    `bson:"van_type"`
+	ScrapedTime time.Time `bson:"scraped_time"`
 }
 
 type ResponseBody struct {
@@ -136,9 +138,17 @@ var VanCategories []string = []string{
 	"wrangler",
 }
 
+var Cities []string = []string{
+	"anchorage", "chicago", "chicago-offers", "denver", "elkhart", "forest-city", "las-vegas", "los-angeles", "miami", "new-york", "orlando", "phoenix", "salt-lake-city", "san-francisco", "seattle",
+}
+
 var BaseURL string = "https://indiecampers.com/api/v3/availability"
 
 func main() {
+
+	dates := tools.GetAllMondaysInYear(2025)
+	fmt.Println(dates)
+
 	var bookingBody BookingBody = BookingBody{
 		CheckInCity:      "anchorage",
 		CheckInDateTime:  "2025-06-30T16:30:00+00:00",
@@ -195,16 +205,26 @@ func main() {
 
 	var results []Price
 
+	// Coerce the http response in to the correct format for the prices collection
 	for _, v := range responseData.Data.Availability {
+
+		var expectedLayout = "2006-01-02"
 		if v.Available {
+			// Necessary to parse strings from the format given by the http response
+			parsedStartDate, err := time.Parse(expectedLayout, v.StartDate)
+			tools.Check(err)
+			parsedEndDate, err := time.Parse(expectedLayout, v.EndDate)
+			tools.Check(err)
 			var result Price = Price{
-				Supplier:   "IndieCampers",
-				StartDate:  v.StartDate,
-				EndDate:    v.EndDate,
-				Location:   v.Location,
-				TotalPrice: v.TotalPrice,
-				VanType:    v.VanType,
+				Supplier:    "IndieCampers",
+				StartDate:   parsedStartDate,
+				EndDate:     parsedEndDate,
+				Location:    v.Location,
+				TotalPrice:  v.TotalPrice,
+				VanType:     v.VanType,
+				ScrapedTime: time.Now(),
 			}
+			fmt.Println("Parsed result", result)
 			results = append(results, result)
 		}
 	}
