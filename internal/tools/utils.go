@@ -41,7 +41,7 @@ func GetDatabaseConnectionURL() string {
 
 }
 
-func GetAllMondaysInYear(year int) []time.Time {
+func GetAllFutureMondaysInYear(year int) []time.Time {
 
 	// Start with January 1st of the given year
 	startDate := time.Date(year, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -60,7 +60,9 @@ func GetAllMondaysInYear(year int) []time.Time {
 	var dates []time.Time
 
 	for loopDate.Year() == year {
-		dates = append(dates, loopDate)
+		if loopDate.After(time.Now()) {
+			dates = append(dates, loopDate)
+		}
 		loopDate = loopDate.AddDate(0, 0, 7)
 	}
 

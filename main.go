@@ -10,7 +10,6 @@ import (
 
 	"github.com/RoozeDev/van-price-scraper/internal/tools"
 	"github.com/andybalholm/brotli"
-	"go.mongodb.org/mongo-driver/bson"
 )
 
 type BookingBody struct {
@@ -146,115 +145,138 @@ var BaseURL string = "https://indiecampers.com/api/v3/availability"
 
 func main() {
 
-	dates := tools.GetAllMondaysInYear(2025)
-	fmt.Println(dates)
+	dates := tools.GetAllFutureMondaysInYear(2025)
 
-	var bookingBody BookingBody = BookingBody{
-		CheckInCity:      "anchorage",
-		CheckInDateTime:  "2025-06-30T16:30:00+00:00",
-		CheckOutCity:     "anchorage",
-		CheckOutDateTime: "2025-07-07T11:00:00+00:00",
-		VanCategories:    VanCategories,
-		VanCategory:      "",
-		LegacySearch:     false,
-		Page:             1,
-		Locale:           "en",
-	}
-	var meta RequestMeta = RequestMeta{
-		CurrentRoute: "rent-an-rv-search",
-	}
-	var requestBody RequestBody = RequestBody{
-		Booking: bookingBody,
-		Meta:    meta,
-	}
-	body, err := json.Marshal(requestBody)
-	if err != nil {
-		fmt.Println("Error decoding body")
-		return
-	}
-	req, err := http.NewRequest(http.MethodPost, BaseURL, bytes.NewBuffer(body))
-	if err != nil {
-		fmt.Println("Error creating request", err)
-		return
-	}
+	for _, monday := range dates {
 
-	for k, v := range RequestHeaders {
-		req.Header.Set(k, v)
-	}
+		midday := time.Date(monday.Year(), time.Month(monday.Month()), monday.Day(), 12, 0, 0, 0, time.UTC)
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		fmt.Println("Error response received", err)
-	}
-	defer resp.Body.Close()
+		// Aim for midday
+		indieCampersRequestDateFormat := "2006-01-02T15:04:05-07:00"
 
-	var responseData ResponseBody
+		checkInDateTime := midday.Format(indieCampersRequestDateFormat)
+		checkOutDateTime := midday.AddDate(0, 0, 7).Format(indieCampersRequestDateFormat)
 
-	if resp.Header.Get("Content-Encoding") == "br" {
-		// Wrap the response body with Brotli decompressor
-		decompressedBody := brotli.NewReader(resp.Body)
-		err = json.NewDecoder(decompressedBody).Decode(&responseData)
-		if err != nil {
-			fmt.Println("Error decoding decompressed body", err)
-		}
+		for _, city := range Cities {
 
-	} else {
-		err = json.NewDecoder(resp.Body).Decode(&responseData)
-		fmt.Println("Error decoding body", err)
-	}
+			fmt.Println("Getting data for", city, "for start date", checkInDateTime)
 
-	var results []Price
-
-	// Coerce the http response in to the correct format for the prices collection
-	for _, v := range responseData.Data.Availability {
-
-		var expectedLayout = "2006-01-02"
-		if v.Available {
-			// Necessary to parse strings from the format given by the http response
-			parsedStartDate, err := time.Parse(expectedLayout, v.StartDate)
-			tools.Check(err)
-			parsedEndDate, err := time.Parse(expectedLayout, v.EndDate)
-			tools.Check(err)
-			var result Price = Price{
-				Supplier:    "IndieCampers",
-				StartDate:   parsedStartDate,
-				EndDate:     parsedEndDate,
-				Location:    v.Location,
-				TotalPrice:  v.TotalPrice,
-				VanType:     v.VanType,
-				ScrapedTime: time.Now(),
+			var bookingBody BookingBody = BookingBody{
+				CheckInCity:      city,
+				CheckInDateTime:  checkInDateTime,
+				CheckOutCity:     city,
+				CheckOutDateTime: checkOutDateTime,
+				VanCategories:    VanCategories,
+				VanCategory:      "",
+				LegacySearch:     false,
+				Page:             1,
+				Locale:           "en",
 			}
-			fmt.Println("Parsed result", result)
-			results = append(results, result)
+			var meta RequestMeta = RequestMeta{
+				CurrentRoute: "rent-an-rv-search",
+			}
+			var requestBody RequestBody = RequestBody{
+				Booking: bookingBody,
+				Meta:    meta,
+			}
+			body, err := json.Marshal(requestBody)
+			if err != nil {
+				fmt.Println("Error decoding body")
+				return
+			}
+			req, err := http.NewRequest(http.MethodPost, BaseURL, bytes.NewBuffer(body))
+			if err != nil {
+				fmt.Println("Error creating request", err)
+				return
+			}
+
+			for k, v := range RequestHeaders {
+				req.Header.Set(k, v)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				fmt.Println("Error response received", err)
+			}
+			defer resp.Body.Close()
+
+			var responseData ResponseBody
+
+			if resp.Header.Get("Content-Encoding") == "br" {
+				// Wrap the response body with Brotli decompressor
+				decompressedBody := brotli.NewReader(resp.Body)
+				err = json.NewDecoder(decompressedBody).Decode(&responseData)
+				if err != nil {
+					fmt.Println("Error decoding decompressed body", err)
+				}
+
+			} else {
+				err = json.NewDecoder(resp.Body).Decode(&responseData)
+				if err != nil {
+					fmt.Println("Error decoding body", err)
+				}
+			}
+
+			var results []Price
+
+			// Coerce the http response in to the correct format for the prices collection
+			for _, v := range responseData.Data.Availability {
+
+				var expectedLayout = "2006-01-02"
+				if v.Available {
+					// Necessary to parse strings from the format given by the http response
+					parsedStartDate, err := time.Parse(expectedLayout, v.StartDate)
+					tools.Check(err)
+					parsedEndDate, err := time.Parse(expectedLayout, v.EndDate)
+					tools.Check(err)
+					var result Price = Price{
+						Supplier:    "IndieCampers",
+						StartDate:   parsedStartDate,
+						EndDate:     parsedEndDate,
+						Location:    v.Location,
+						TotalPrice:  v.TotalPrice,
+						VanType:     v.VanType,
+						ScrapedTime: time.Now(),
+					}
+					fmt.Println("Parsed result", result)
+					results = append(results, result)
+				}
+			}
+
+			// Might not have any results
+			if len(results) > 0 {
+
+				databaseName := tools.GetDatabaseName()
+				uri := tools.GetDatabaseConnectionURL()
+				client := tools.GetDatabaseClient(uri)
+				defer tools.CloseConnection(client)
+
+				databaseConnection := tools.GetDatabaseConnection(client, databaseName)
+
+				coll := databaseConnection.Collection("prices")
+
+				_, err := coll.InsertMany(context.TODO(), results)
+				tools.Check(err)
+
+				// fmt.Println(dbresult.InsertedIDs...)
+
+				// filter := bson.M{}
+
+				// cursor, err := coll.Find(context.TODO(), filter)
+				// tools.Check(err)
+
+				// var dbResults []Price
+				// if err = cursor.All(context.TODO(), &dbResults); err != nil {
+				// 	panic(err)
+				// }
+				// for _, result := range dbResults {
+				// 	res, _ := bson.MarshalExtJSON(result, false, false)
+				// 	fmt.Println(string(res))
+				// }
+			} else {
+				fmt.Println("No results found")
+			}
+
 		}
 	}
-
-	databaseName := tools.GetDatabaseName()
-	uri := tools.GetDatabaseConnectionURL()
-	client := tools.GetDatabaseClient(uri)
-	defer tools.CloseConnection(client)
-
-	databaseConnection := tools.GetDatabaseConnection(client, databaseName)
-
-	coll := databaseConnection.Collection("prices")
-
-	dbresult, err := coll.InsertMany(context.TODO(), results)
-	tools.Check(err)
-
-	fmt.Println(dbresult.InsertedIDs...)
-
-	filter := bson.M{}
-
-	cursor, err := coll.Find(context.TODO(), filter)
-	tools.Check(err)
-
-	var dbResults []Price
-	if err = cursor.All(context.TODO(), &dbResults); err != nil {
-		panic(err)
-	}
-	for _, result := range dbResults {
-		res, _ := bson.MarshalExtJSON(result, false, false)
-		fmt.Println(string(res))
-	}
-
 }
